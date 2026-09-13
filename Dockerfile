@@ -38,6 +38,7 @@ RUN dnf install -y \
     && dnf clean all
 
 RUN pip install --no-cache-dir -U yt-dlp
+RUN pip install --no-cache-dir --break-system-packages -U yt-dlp curl_cffi
 
 COPY --from=builder /app/tg_bot /app/tg_bot
 
