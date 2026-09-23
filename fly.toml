@@ -1,27 +1,27 @@
-# fly.toml app configuration file generated for url-tool-tgbot on 2026-09-05T20:12:06Z
+# fly.toml app configuration file generated for url-tool-tgbot-3brotw on 2026-09-23T14:15:03Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'url-tool-tgbot'
+app = 'url-tool-tgbot-3brotw'
 primary_region = 'ams'
 
 [build]
 
 [http_service]
-  auto_start_machines = true
-  auto_stop_machines = true
-  force_https = true
   internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
+  processes = ['app']
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    timeout = "5s"
-    path = "/"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/'
 
 [[vm]]
   memory = '1gb'
