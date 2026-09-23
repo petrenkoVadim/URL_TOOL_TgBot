@@ -10,9 +10,9 @@
 #include <map>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
 
 #include <httplib.h>
+
 #include <boost/asio.hpp>
 
 namespace boost
@@ -40,10 +40,9 @@ struct FileGuard
     }
 };
 
-long long get_video_size(const string &url, const string &cookies_flag)
+long long get_video_size(string url, string cookies_flag)
 {
-    // Використовуємо android,web клієнт замість impersonate для більшої стабільності
-    string command = "yt-dlp --extractor-args \"youtube:player_client=android,web\" " + cookies_flag +
+    string command = "yt-dlp --impersonate chrome " + cookies_flag +
                      "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
                      "--print filesize_approx --no-playlist \"" +
                      url + "\" 2>/dev/null";
@@ -91,28 +90,28 @@ int main()
 
     string cookies_flag = "";
     const char *cookies_env = getenv("YOUTUBE_COOKIES");
-    if (cookies_env && strlen(cookies_env) > 0)
+    if (cookies_env)
     {
-        ofstream cookies_file("/app/cookies.txt");
+        string cookies_content = cookies_env;
 
-        string cookies_str = cookies_env;
-        // Замінюємо всі буквальні \t на реальні символи табуляції, якщо вони згорнулися під час передачі в ENV
+        // Типова причина, чому cookies "не працюють": секрет зберігся з
+        // екранованими "\n" (два символи: backslash + n) замість реального
+        // переносу рядка — так буває, якщо його задавали не через
+        // `fly secrets set VAR="$(cat file)"`, а копіювали вручну одним рядком.
+        // Тоді весь Netscape cookie file зливається в один рядок і yt-dlp
+        // просто ігнорує файл. Розгортаємо такі послідовності назад.
         size_t pos = 0;
-        while ((pos = cookies_str.find("\\t", pos)) != string::npos)
+        while ((pos = cookies_content.find("\\n", pos)) != string::npos)
         {
-            cookies_str.replace(pos, 2, "\t");
+            cookies_content.replace(pos, 2, "\n");
             pos += 1;
         }
 
-        if (cookies_str.find("# Netscape HTTP Cookie File") == string::npos)
-        {
-            cookies_file << "# Netscape HTTP Cookie File\n";
-        }
-
-        cookies_file << cookies_str << "\n";
+        ofstream cookies_file("/app/cookies.txt");
+        cookies_file << cookies_content;
         cookies_file.close();
         cookies_flag = "--cookies /app/cookies.txt ";
-        cout << "cookies.txt успішно створено" << endl;
+        cout << "cookies.txt створено (" << cookies_content.size() << " байт)" << endl;
     }
     else
     {
@@ -135,7 +134,7 @@ int main()
         user_actions[message->chat->id] = "music";
         bot.getApi().sendMessage(message->chat->id, "mode changed to music from video"); });
 
-    bot.getEvents().onAnyMessage([&bot, &user_actions, cookies_flag](TgBot::Message::Ptr message)
+    bot.getEvents().onAnyMessage([&bot, &user_actions, &cookies_flag](TgBot::Message::Ptr message)
                                  {
         if (message->text.empty() || message->text[0] == '/') return;
 
@@ -145,19 +144,15 @@ int main()
 
         if (action == "video") {
             bot.getApi().sendMessage(chat_id, "wait a second");
-            long long size = get_video_size(url, cookies_flag);
-            if (size > 50000000 || size == -1) { 
-                // Примітка: робимо перевірку м'якшою, якщо розмір не вдалося визначити
+            if (get_video_size(url, cookies_flag) > 30000000) {
+                bot.getApi().sendMessage(chat_id, "video is too big");
+                return;
             }
-
             string output_file = "video_" + to_string(chat_id) + ".mp4";
             FileGuard guard(output_file);
-            
-            string command = "yt-dlp --extractor-args \"youtube:player_client=android,web\" " + cookies_flag +
-                             "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
-                             "--merge-output-format mp4 --no-playlist -N 4 "
-                             "\"" + url + "\" -o \"" + output_file + "\"";
-                             
+            string command = "yt-dlp --impersonate chrome " + cookies_flag + "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
+                              "--merge-output-format mp4 --no-playlist -N 8 "
+                              "\"" + url + "\" -o \"" + output_file + "\"";
             bot.getApi().sendMessage(chat_id, "converting...");
             int rc = system((command + " 2>&1 | tee /tmp/yt-dlp-video.log >&2").c_str());
             cerr << "yt-dlp video exit code: " << rc << endl;
@@ -172,18 +167,19 @@ int main()
                 bot.getApi().sendVideo(chat_id, TgBot::InputFile::fromFile(output_file, "video/mp4"));
             } catch (const std::exception& e) {
                 bot.getApi().sendMessage(chat_id, "Error. Telegram can't afford this size of video :(");
+                if (filesystem::exists(output_file)) filesystem::remove(output_file);
             }
         }
         else if (action == "music") {
             bot.getApi().sendMessage(chat_id, "wait a second");
+            if (get_video_size(url, cookies_flag) > 50000000) {
+                bot.getApi().sendMessage(chat_id, "too big sound");
+                return;
+            }
             string timestamp = to_string(chrono::steady_clock::now().time_since_epoch().count());
             string output_file = "audio_" + to_string(chat_id) + "_" + timestamp + ".mp3";
-            FileGuard guard(output_file);
-
-            string command = "yt-dlp --extractor-args \"youtube:player_client=android,web\" " + cookies_flag +
-                             "--no-playlist -x --audio-format mp3 "
-                             "\"" + url + "\" -o \"" + output_file + "\"";
-                             
+            string command = "yt-dlp --impersonate chrome " + cookies_flag + "--no-playlist "
+                              "-x --audio-format mp3 \"" + url + "\" -o \"" + output_file + "\"";
             bot.getApi().sendMessage(chat_id, "converting...");
             system(command.c_str());
 
@@ -196,6 +192,7 @@ int main()
                 bot.getApi().sendAudio(chat_id, TgBot::InputFile::fromFile(output_file, "audio/mpeg"));
             } catch (const std::exception& e) {
                 bot.getApi().sendMessage(chat_id, "Error. Telegram can't afford this size of sound :(");
+                if (filesystem::exists(output_file)) filesystem::remove(output_file);
             }
         } });
 
