@@ -120,9 +120,10 @@ int main()
             }
             string output_file = "video_" + to_string(chat_id) + ".mp4";
             FileGuard guard(output_file);
-            string command = "yt-dlp -f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
-                              "--merge-output-format mp4 --no-playlist -N 8 "
-                              "\"" + url + "\" -o \"" + output_file + "\"";
+            string command = "yt-dlp --impersonate chrome -f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
+                  "--merge-output-format mp4 --no-playlist -N 8 "
+                  "\"" + url + "\" -o \"" + output_file + "\"";
+
             bot.getApi().sendMessage(chat_id, "converting...");
             system(command.c_str());
 
@@ -147,7 +148,8 @@ int main()
             string timestamp = to_string(chrono::steady_clock::now().time_since_epoch().count());
             string output_file = "audio_" + to_string(chat_id) + "_" + timestamp + ".mp3";
             string command = "yt-dlp --impersonate chrome --no-playlist "
-                              "-x --audio-format mp3 \"" + url + "\" -o \"" + output_file + "\"";
+                  "-x --audio-format mp3 \"" + url + "\" -o \"" + output_file + "\"";
+
             bot.getApi().sendMessage(chat_id, "converting...");
             system(command.c_str());
 
