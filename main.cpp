@@ -40,9 +40,9 @@ struct FileGuard
     }
 };
 
-long long get_video_size(const string &url, const string &cookies_flag)
+long long get_video_size(string url, string cookies_flag)
 {
-    string command = "yt-dlp --extractor-args \"youtube:player_client=ios,web\" " + cookies_flag +
+    string command = "yt-dlp --impersonate chrome " + cookies_flag +
                      "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
                      "--print filesize_approx --no-playlist \"" +
                      url + "\" 2>/dev/null";
@@ -90,13 +90,13 @@ int main()
 
     string cookies_flag = "";
     const char *cookies_env = getenv("YOUTUBE_COOKIES");
-    if (cookies_env && string(cookies_env).length() > 10)
+    if (cookies_env)
     {
         ofstream cookies_file("/app/cookies.txt");
         cookies_file << cookies_env;
         cookies_file.close();
         cookies_flag = "--cookies /app/cookies.txt ";
-        cout << "cookies.txt успішно створено" << endl;
+        cout << "cookies.txt створено" << endl;
     }
     else
     {
@@ -119,8 +119,7 @@ int main()
         user_actions[message->chat->id] = "music";
         bot.getApi().sendMessage(message->chat->id, "mode changed to music from video"); });
 
-    // ✅ Фікс: Захоплюємо cookies_flag за значенням (by value), а не за посиланням
-    bot.getEvents().onAnyMessage([&bot, &user_actions, cookies_flag](TgBot::Message::Ptr message)
+    bot.getEvents().onAnyMessage([&bot, &user_actions, &cookies_flag](TgBot::Message::Ptr message)
                                  {
         if (message->text.empty() || message->text[0] == '/') return;
 
@@ -136,13 +135,9 @@ int main()
             }
             string output_file = "video_" + to_string(chat_id) + ".mp4";
             FileGuard guard(output_file);
-
-            // ✅ Фікс: Перевірка пробілів у command
-            string command = "yt-dlp --extractor-args \"youtube:player_client=ios,web\" " + cookies_flag +
-                              "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
+            string command = "yt-dlp --impersonate chrome " + cookies_flag + "-f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" "
                               "--merge-output-format mp4 --no-playlist -N 8 "
                               "\"" + url + "\" -o \"" + output_file + "\"";
-
             bot.getApi().sendMessage(chat_id, "converting...");
             int rc = system((command + " 2>&1 | tee /tmp/yt-dlp-video.log >&2").c_str());
             cerr << "yt-dlp video exit code: " << rc << endl;
@@ -157,6 +152,7 @@ int main()
                 bot.getApi().sendVideo(chat_id, TgBot::InputFile::fromFile(output_file, "video/mp4"));
             } catch (const std::exception& e) {
                 bot.getApi().sendMessage(chat_id, "Error. Telegram can't afford this size of video :(");
+                if (filesystem::exists(output_file)) filesystem::remove(output_file);
             }
         }
         else if (action == "music") {
@@ -167,11 +163,8 @@ int main()
             }
             string timestamp = to_string(chrono::steady_clock::now().time_since_epoch().count());
             string output_file = "audio_" + to_string(chat_id) + "_" + timestamp + ".mp3";
-            FileGuard guard(output_file); // ✅ Додано FileGuard для звуку
-
-            string command = "yt-dlp --extractor-args \"youtube:player_client=ios,web\" " + cookies_flag +
-                              "--no-playlist -x --audio-format mp3 \"" + url + "\" -o \"" + output_file + "\"";
-
+            string command = "yt-dlp --impersonate chrome " + cookies_flag + "--no-playlist "
+                              "-x --audio-format mp3 \"" + url + "\" -o \"" + output_file + "\"";
             bot.getApi().sendMessage(chat_id, "converting...");
             system(command.c_str());
 
@@ -184,6 +177,7 @@ int main()
                 bot.getApi().sendAudio(chat_id, TgBot::InputFile::fromFile(output_file, "audio/mpeg"));
             } catch (const std::exception& e) {
                 bot.getApi().sendMessage(chat_id, "Error. Telegram can't afford this size of sound :(");
+                if (filesystem::exists(output_file)) filesystem::remove(output_file);
             }
         } });
 
